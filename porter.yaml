@@ -4,10 +4,10 @@
 # Uncomment out the sections below to take full advantage of what Porter can do!
 
 name: vsonline-function
-version: 0.1.0
+version: 0.1.1
 description: "A dev bundle that installs and uninstalls an Azure function environment in Azure......"
-invocationImage: squillace/vsonline-function:v0.1.0
-tag: squillace/vsonline-function:v0.1.0
+invocationImage: squillace/vsonline-function:v0.1.1
+tag: squillace/vsonline-function:v0.1.1
 # Uncomment out the line below to use a template Dockerfile for your invocation image
 dockerfile: Dockerfile.tmpl
 
