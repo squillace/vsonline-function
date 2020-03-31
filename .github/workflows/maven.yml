@@ -1,0 +1,43 @@
+# This workflow will build a Java project with Maven
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Java CI (Maven) and CNAB bundle package and publish
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JDK 11.0.6
+      uses: actions/setup-java@v1
+      with:
+        java-version: 11.0.6
+    - name: Build with Maven
+      run: |
+        mvn -B package --file pom.xml
+        java -version
+    - name: Zip the function for CNAB bundle
+      run: | 
+        pushd target/azure-functions/java-function; zip -r ../../../zip.zip .; popd
+    - name: CNAB Bundle with porter
+      env:
+        DOCKER_USERNAME: ${{secrets.DOCKER_USERNAME}}
+        DOCKER_PASSWORD: ${{secrets.DOCKER_PASSWORD}}
+      run: |
+        echo "Installing Porter and Porter mixins to build and publish."
+        echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin
+        curl https://deislabs.blob.core.windows.net/porter/latest/install-linux.sh | bash
+        PATH=$PATH:~/.porter
+        porter mixins install jq --url https://github.com/squillace/porter-jq/releases/download --version v0.1.0
+        porter build
+        porter publish
+
+
