@@ -1,0 +1,190 @@
+# This is the configuration for Porter
+# You must define steps for each action, but the rest is optional
+# See https://porter.sh/author-bundles for documentation on how to configure your bundle
+# Uncomment out the sections below to take full advantage of what Porter can do!
+
+name: azure-functions-java-hello
+version: 0.5.3
+description: "A dev bundle that installs and uninstalls the Azure functions environment in Azure..."
+invocationImage: squillace/functions-java-hello-install:v0.5.3
+tag: squillace/functions-java-hello:v0.5.3
+
+# Uncomment out the line below to use a template Dockerfile for your invocation image
+dockerfile: Dockerfile.tmpl
+
+mixins:
+  - exec
+  - az
+  - jq
+
+parameters:
+  - name: region
+    description: "The Azure region in which you want to deploy the function."
+    type: string
+    applyTo:
+      - install
+    default: southcentralus
+  - name: functionapp
+    description: "The path to the .zip file to install."
+    type: file
+    path: /root/functionapp
+    applyTo:
+      - upgrade
+  - name: function_name
+    description: "The name of the function."
+    type: string
+    applyTo:
+      - install
+      - uninstall
+  - name: resource_group
+    description: "The resource group in which to create your functions."
+    type: string
+    applyTo:
+      - install
+      - uninstall
+  - name: function_runtime_version
+    type: string
+    description: "The version of the Azure Function runtime. The default is 3."
+    default: "3"
+  - name: test_url
+    description: "The url to use in testing. Can be obtained by \"porter show azure-functions-java-hello -o json | jq -r \'.outputs.HOSTNAME\'\""
+    type: string
+    applyTo:
+      - functions.java.hello.test
+
+customActions:
+  functions.java.hello.test:
+    description: "Tests the Azure Function using the test_url value."
+    stateless: true
+    modifies: false
+
+outputs:
+- name: HOSTNAME
+  type: string
+  description: "The base DNS address at which the function is hosted. Used as an input to the \"functions.hello.test\" action."
+  applyTo:
+    - install
+
+  
+install:
+  - az: 
+      description: "Azure CLI login"
+      arguments: 
+        - "login" 
+      flags:
+        service-principal: 
+        username: "{{ bundle.credentials.azure_client_id}}"
+        password: "{{ bundle.credentials.azure_client_secret}}"
+        tenant: "{{ bundle.credentials.azure_tenant_id}}"
+  - az: 
+      description: "Setting the Azure subscription...."
+      arguments: 
+        - "account" 
+        - "set" 
+      flags:
+        subscription: "{{ bundle.credentials.azure_subscription_id}}"
+  - az: 
+      description: "Create resource group"
+      arguments: 
+        - "group" 
+        - "create" 
+      flags:
+        name: "{{ bundle.parameters.resource_group}}"
+        location: "{{bundle.parameters.region}}"
+  - az:
+      description: "Creating the storage account...."
+      arguments:
+        - "storage"
+        - "account"
+        - "create"
+      flags:
+        name: "{{ bundle.parameters.function_name}}"
+        location: "{{bundle.parameters.region}}"
+        resource-group: "{{ bundle.parameters.resource_group}}"
+        sku: "Standard_LRS"
+  - az: 
+      description: "Create function app"
+      arguments: 
+        - "functionapp" 
+        - "create" 
+      flags:
+        name: "{{ bundle.parameters.function_name}}"
+        resource-group: "{{ bundle.parameters.resource_group}}"
+        storage-account: "{{ bundle.parameters.function_name}}"
+        functions-version: 3
+        consumption-plan-location: "{{bundle.parameters.region}}"
+      outputs: 
+        - name: "HOSTNAME"
+          jsonPath: 'defaultHostName'
+  - az: 
+      description: "Deploy function app"
+      arguments: 
+        - "functionapp" 
+        - "deployment"
+        - "source" 
+        - "config-zip"
+      flags:
+        name: "{{ bundle.parameters.function_name}}"
+        resource-group: "{{ bundle.parameters.resource_group}}"
+        src: zip.zip
+
+functions.java.hello.test: 
+  - exec:
+      command: bash
+      description: "cURLing the application to test PUTting and GETting..."
+      flags:
+        c: '"curl -s {{bundle.parameters.test_url}}/api/HttpTrigger > test.output"'
+
+  - jq: 
+      description: "Fetching out a latitude, longitude, and currently..."
+      arguments:
+        - '. | {latitude, longitude, currently}'
+        - test.output
+
+
+uninstall:
+  - az: 
+      description: "Azure CLI login"
+      arguments: 
+        - "login" 
+      flags:
+        service-principal: 
+        username: "{{ bundle.credentials.azure_client_id}}"
+        password: "{{ bundle.credentials.azure_client_secret}}"
+        tenant: "{{ bundle.credentials.azure_tenant_id}}"
+  - az: 
+      description: "Setting the Azure subscription...."
+      arguments: 
+        - "account" 
+        - "set" 
+      flags:
+        subscription: "{{ bundle.credentials.azure_subscription_id}}"
+  - az:
+      description: "Deleting the Azure Function....."
+      arguments:
+        - "functionapp"
+        - "delete"
+      flags:
+        resource-group: "{{ bundle.parameters.resource_group}}"
+        name: "{{ bundle.parameters.function_name}}"
+
+# See https://porter.sh/author-bundles/#dependencies
+#dependencies:
+#  mysql:
+#    tag: deislabs/porter-mysql:latest
+#    parameters:
+#      database-name: wordpress
+
+credentials:
+  - name: azure_client_id
+    env: AZURE_CLIENT_ID
+    description: AAD Client ID for Azure account authentication - used for Az CLI
+  - name: azure_tenant_id
+    env: AZURE_TENANT_ID
+    description: Azure AAD Tenant Id for Azure account authentication  - used for Az CLI
+  - name: azure_client_secret
+    env: AZURE_CLIENT_SECRET
+    description: AAD Client Secret for Azure account authentication - used for Az CLI
+  - name: azure_subscription_id
+    env: AZURE_SUBSCRIPTION_ID
+    description: Azure Subscription Id used to set the subscription where the account has access to multiple subscriptions
